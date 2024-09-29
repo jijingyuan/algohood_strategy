@@ -14,5 +14,8 @@ setup(
     author_email="jijingyuan@rookiequant.com",  # 作者邮箱
     description="samples for build ur own strategy scripts",  # 包的简短描述
     packages=find_packages(),  # 自动发现包目录
-    install_requires=[],
+    install_requires=[
+        'numpy',
+        'pandas',
+    ],
 )
