@@ -42,5 +42,5 @@ class BrokerMgr:
             return
 
         target_mgr = TargetMgr(_target_method_name, _target_method_param, _data_type)
-        targets = target_mgr.handle_signals(signals, _forward_window, _file_name)
+        targets = target_mgr.start_task(signals, _forward_window)
         pd.DataFrame(targets).to_csv('../algoFile/{}.csv'.format(_file_name))
