@@ -4,9 +4,9 @@
 @file: target_condition_ret.py
 @author: Jerry
 """
-from algoSignal.algoBroker.broker import Broker
+from algoBroker.brokerMgr import BrokerMgr
 
-Broker.start_target_task(
+BrokerMgr.start_target_task(
     _target_method_name='ConditionRet',
     _target_method_param={},
     _data_type='trade',

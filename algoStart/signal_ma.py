@@ -6,9 +6,9 @@
 """
 import time
 
-from algoSignal.algoBroker.broker import Broker
+from algoBroker.brokerMgr import BrokerMgr
 
-Broker.start_signal_task(
+BrokerMgr.start_signal_task(
     _signal_method_name='MA',
     _signal_method_param={
         '_short_term': 5,
