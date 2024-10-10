@@ -6,9 +6,10 @@
 """
 import time
 
-from algoBroker.brokerMgr import BrokerMgr
+from algoBroker.brokerMgr import BrokerMgr, SignalType
 
 BrokerMgr.start_signal_task(
+    _signal_type=SignalType.SIMPLE,
     _signal_method_name='MA',
     _signal_method_param={
         '_short_term': 5,
@@ -20,7 +21,7 @@ BrokerMgr.start_signal_task(
         # 'eth_usdt|binance_future',
     ],
     _lag=60,
-    _start_timestamp=time.time() - 60 * 60 * 5,
+    _start_timestamp=time.time() - 60 * 60 * 12,
     _end_timestamp=time.time(),
-    _file_name='ma_signals'
+    _file_name='ma_signals',
 )

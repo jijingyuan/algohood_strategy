@@ -5,13 +5,14 @@
 @author: Jerry
 """
 import uuid
+from typing import Optional, List, Dict
 
 import numpy as np
 from collections import deque
-from algoSignal.algoBase.algoSBase import Base
+from algoUtils.DefUtil import SignalBase
 
 
-class MA(Base):
+class MA(SignalBase):
     def __init__(self, _short_term, _long_term):
         self.short_term = _short_term
         self.long_term = _long_term
@@ -19,7 +20,7 @@ class MA(Base):
         self.symbol = None
         self.prev_direction = None
 
-    def generate_signals(self, _data: list) -> list or None:
+    def generate_signals(self, _data: list) -> Optional[List[Dict]]:
         """
         generate signal to execution module
         :param _data: data source
@@ -28,7 +29,7 @@ class MA(Base):
             'symbol': 'btc_usdt|binance_future',
             'action': 'open' or 'close'
             'position': 'long' or 'short'
-            'executing_type': 'taker' or 'maker' or 'exec_1',
+            'type': 'start' or 'end',
             **kwargs: other info that you need for analyze
         }, ...]
         """
@@ -57,5 +58,5 @@ class MA(Base):
             'symbol': self.symbol,
             'action': 'open',
             'position': 'long' if curr_direction > 0 else 'short',
-            'executing_mod': 'taker'
+            'type': 'start' if curr_direction > 0 else 'end'
         }]

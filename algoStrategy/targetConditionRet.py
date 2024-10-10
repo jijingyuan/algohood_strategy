@@ -4,10 +4,10 @@
 @file: targetConditionRet.py
 @author: Jerry
 """
-from algoSignal.algoBase.algoTBase import Base
+from algoUtils.DefUtil import TargetBase
 
 
-class ConditionRet(Base):
+class ConditionRet(TargetBase):
     def __init__(self):
         pass
 
