@@ -6,7 +6,7 @@
 """
 import time
 
-from algoBroker.brokerMgr import BrokerMgr, SignalType
+from algoBroker.brokerMgr import BrokerMgr
 
 BrokerMgr.start_signal_task(
     _signal_method_name='MA',
