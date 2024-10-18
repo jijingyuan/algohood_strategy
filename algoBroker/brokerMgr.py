@@ -91,13 +91,17 @@ class BrokerMgr:
             pd.DataFrame(orders).to_csv('../algoFile/orders_{}.csv'.format(_signal_file))
 
     @classmethod
-    def start_cluster_signal_task(cls):
+    def prepare_signal_task(cls):
         pass
 
     @classmethod
-    def start_cluster_target_task(cls):
+    def prepare_target_task(cls):
         pass
 
     @classmethod
-    def start_cluster_execute_task(cls):
+    def prepare_execute_task(cls):
+        pass
+
+    @classmethod
+    def submit_cluster_tasks(cls):
         pass
