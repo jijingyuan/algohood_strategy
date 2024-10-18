@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-@Create on  2024/10/18 8:09
-@file: signalGrid.py
-@author: Jerry
+@Create: 2024/10/17 8:51
+@File: signalGrid.py
+@Author: Jingyuan
 """
+import numpy as np
 import uuid
 from typing import Optional, List, Dict
 
@@ -27,7 +28,7 @@ class Grid(SignalBase):
                 'position': 'long',
             }]
 
-        if (current_price - self.last_price) / (current_price + self.last_price) * 2 < self.grid:
+        if abs(current_price - self.last_price) / (current_price + self.last_price) * 2 <= self.grid:
             return
 
         position = 'long' if current_price > self.last_price else 'short'
