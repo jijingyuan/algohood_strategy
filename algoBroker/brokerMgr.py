@@ -79,11 +79,11 @@ class BrokerMgr:
         orders = []
         if _signal_type == SignalType.ISOLATED:
             for signal in signals:
-                event_mgr = EventMgr(_execute_method, _execute_param, data_mgr)
+                event_mgr = EventMgr(_execute_method, _execute_param, data_mgr, 'local')
                 orders.extend(event_mgr.start_task(signal))
 
         elif _signal_type == SignalType.CONSECUTIVE:
-            event_mgr = EventMgr(_execute_method, _execute_param, data_mgr)
+            event_mgr = EventMgr(_execute_method, _execute_param, data_mgr, 'local')
             for signal in signals:
                 orders.extend(event_mgr.start_task(signal))
 

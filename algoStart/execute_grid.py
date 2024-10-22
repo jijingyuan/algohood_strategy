@@ -11,7 +11,7 @@ BrokerMgr.start_execute_task(
     _execute_param={
         '_direction': 'short',
         '_holding_spread': 0.001,
-        '_trigger_grid': 0.01,
+        '_trigger_grid': 0.003,
         '_profit_grid': 0.002,
         '_stop_grid': 0.002,
         '_trigger_expire': None,
