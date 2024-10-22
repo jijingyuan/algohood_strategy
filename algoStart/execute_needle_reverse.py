@@ -10,7 +10,7 @@ BrokerMgr.start_execute_task(
     _execute_method='NeedleReverse',
     _execute_param={
         '_direction': 'long',
-        '_holding_spread': 0.001,
+        '_holding_spread': 0.0001,
         '_trigger_grid': 0.003,
         '_profit_grid': 0.002,
         '_stop_grid': 0.002,
@@ -18,6 +18,6 @@ BrokerMgr.start_execute_task(
         '_stop_delay': 1
     },
     _data_type='trade',
-    _signal_type=SignalType.ISOLATED,
+    _signal_type=SignalType.CONSECUTIVE,
     _signal_file='grid_signals',
 )
