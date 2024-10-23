@@ -18,6 +18,6 @@ BrokerMgr.start_execute_task(
         '_stop_delay': 1
     },
     _data_type='trade',
-    _signal_type=SignalType.ISOLATED,
+    _signal_type=SignalType.CONSECUTIVE,
     _signal_file='grid_signals',
 )

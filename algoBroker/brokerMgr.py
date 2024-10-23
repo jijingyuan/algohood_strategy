@@ -77,15 +77,15 @@ class BrokerMgr:
         data_mgr = ExecDataMgr(_data_type)
         data_mgr.init_data_mgr()
         orders = []
+        event_mgr = EventMgr(_execute_method, _execute_param, data_mgr, 'local')
         if _signal_type == SignalType.ISOLATED:
             for signal in signals:
-                event_mgr = EventMgr(_execute_method, _execute_param, data_mgr, 'local')
-                orders.extend(event_mgr.start_task(signal))
+                event_mgr.load_signals([signal])
+                orders.extend(event_mgr.start_task())
 
         elif _signal_type == SignalType.CONSECUTIVE:
-            event_mgr = EventMgr(_execute_method, _execute_param, data_mgr, 'local')
-            for signal in signals:
-                orders.extend(event_mgr.start_task(signal))
+            event_mgr.load_signals(signals)
+            orders.extend(event_mgr.start_task())
 
         if orders:
             pd.DataFrame(orders).to_csv('../algoFile/orders_{}.csv'.format(_signal_file))
