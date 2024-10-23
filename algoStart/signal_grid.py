@@ -15,7 +15,7 @@ BrokerMgr.start_signal_task(
     _data_type='trade',
     _symbols='btc_usdt|binance_future',
     _lag=0.1,
-    _start_timestamp=time.time() - 60 * 60 * 24 * 1,
+    _start_timestamp=time.time() - 60 * 60 * 24 * 2,
     _end_timestamp=time.time() - 60 * 60 * 1,
     _file_name='grid_signals'
 )
