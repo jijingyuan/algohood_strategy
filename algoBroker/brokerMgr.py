@@ -8,8 +8,14 @@ import os
 from enum import Enum
 
 import pandas as pd
+import importlib
+import inspect
+import gzip
+import uuid
 
 from algoExecution.algoEngine.eventMgr import EventMgr
+from algoUtils.zmqUtil import ReqZmq
+from algoConfig.zmqConfig import host, port
 from algoSignal.algoEngine.dataMgr import DataMgr as signalDataMgr
 from algoExecution.algoEngine.dataMgr import DataMgr as ExecDataMgr
 from algoSignal.algoEngine.signalMgr import SignalMgr
@@ -91,8 +97,19 @@ class BrokerMgr:
             pd.DataFrame(orders).to_csv('../algoFile/orders_{}.csv'.format(_signal_file))
 
     @classmethod
-    def prepare_signal_task(cls):
-        pass
+    def prepare_signal_task(
+            cls, _signal_method_name, _signal_method_param, _data_type, _symbols, _lag, _start_timestamp,
+            _end_timestamp
+    ):
+        return {
+            '_signal_method_name': _signal_method_name,
+            '_signal_method_param': _signal_method_param,
+            '_symbols': _symbols,
+            '_data_type': _data_type,
+            '_lag': _lag,
+            '_start_timestamp': _start_timestamp,
+            '_end_timestamp': _end_timestamp,
+        }
 
     @classmethod
     def prepare_target_task(cls):
@@ -103,5 +120,20 @@ class BrokerMgr:
         pass
 
     @classmethod
-    def submit_cluster_tasks(cls):
-        pass
+    def submit_cluster_tasks(cls, _tasks, _update_codes=True):
+        # update codes 2 remote server
+        zmq_client = ReqZmq(port, host)
+        module_names = set([v['_signal_method_name'] for v in _tasks])
+
+        scripts_dict = {}
+        for name in module_names:
+            module_name = 'algoStrategy.signal{}'.format(name)
+            module = importlib.import_module(module_name)
+            script_content = inspect.getsource(module).encode('utf-8')
+            scripts_dict[name] = gzip.compress(script_content)
+
+        task_dict = {'task_type': 'signal', 'code': scripts_dict}
+        rsp = zmq_client.send_msg(task_dict)
+
+        # submit tasks
+        # waiting for results
