@@ -10,7 +10,7 @@ from enum import Enum
 import pandas as pd
 import importlib
 import inspect
-import gzip
+import time
 import uuid
 
 from algoExecution.algoEngine.eventMgr import EventMgr
@@ -120,7 +120,7 @@ class BrokerMgr:
         pass
 
     @classmethod
-    def submit_cluster_tasks(cls, _tasks, _update_codes=True):
+    def submit_cluster_tasks(cls, _task_name, _tasks, _update_codes=True):
         # update codes 2 remote server
         zmq_client = ReqZmq(port, host)
         module_names = set([v['_signal_method_name'] for v in _tasks])
@@ -141,7 +141,27 @@ class BrokerMgr:
             logger.error(rsp)
             return
 
+        logger.info('strategy checked')
         # submit tasks
-        task_dict = {'task_type': 'signal', 'task': {'task_id': task_id, 'type': 'tasks', 'info': _tasks}}
-        rsp = zmq_client.send_msg(task_dict)
+        task_dict = {'task_type': 'signal', 'task': {'task_name': _task_name, 'type': 'tasks', 'info': _tasks}}
+        task_id = zmq_client.send_msg(task_dict)
+        logger.info('tasks submitted')
+
         # waiting for results
+        while True:
+            try:
+                task_left = zmq_client.send_msg({'task_type': 'check', 'task': task_id})
+                if task_left is None:
+                    continue
+
+                elif not task_left:
+                    logger.info('{} finished'.format(task_id))
+                    break
+
+                logger.info('{} left {}'.format(task_id, task_left))
+
+            except Exception as e:
+                logger.error(e)
+
+            finally:
+                time.sleep(5)
