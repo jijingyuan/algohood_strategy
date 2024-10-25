@@ -25,4 +25,4 @@ param = {
 
 symbols = ['btc_usdt|binance_future', 'eth_usdt|binance_future']
 tasks = [BrokerMgr.prepare_signal_task(_symbols=symbol, **param) for symbol in symbols]
-BrokerMgr.submit_cluster_tasks(tasks)
+BrokerMgr.submit_cluster_tasks(tasks, True)

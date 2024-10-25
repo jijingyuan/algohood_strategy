@@ -125,15 +125,23 @@ class BrokerMgr:
         zmq_client = ReqZmq(port, host)
         module_names = set([v['_signal_method_name'] for v in _tasks])
 
-        scripts_dict = {}
+        task_id = str(uuid.uuid4())
         for name in module_names:
             module_name = 'algoStrategy.signal{}'.format(name)
             module = importlib.import_module(module_name)
-            script_content = inspect.getsource(module).encode('utf-8')
-            scripts_dict[name] = gzip.compress(script_content)
+            script_content = inspect.getsource(module) if _update_codes else ''
 
-        task_dict = {'task_type': 'signal', 'code': scripts_dict}
-        rsp = zmq_client.send_msg(task_dict)
+            task_dict = {'task_type': 'signal', 'task': {'type': 'code', 'info': {
+                'module_name': name, 'scripts': script_content
+            }}}
+            rsp = zmq_client.send_msg(task_dict)
+            if rsp == 'finished':
+                continue
+
+            logger.error(rsp)
+            return
 
         # submit tasks
+        task_dict = {'task_type': 'signal', 'task': {'task_id': task_id, 'type': 'tasks', 'info': _tasks}}
+        rsp = zmq_client.send_msg(task_dict)
         # waiting for results
