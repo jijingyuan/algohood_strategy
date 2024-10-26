@@ -4,23 +4,23 @@
 @File: brokerMgr.py
 @Author: Jingyuan
 """
+import importlib
+import inspect
 import os
+import time
+import uuid
 from enum import Enum
 
 import pandas as pd
-import importlib
-import inspect
-import time
-import uuid
 
-from algoExecution.algoEngine.eventMgr import EventMgr
-from algoUtils.zmqUtil import ReqZmq
 from algoConfig.zmqConfig import host, port
-from algoSignal.algoEngine.dataMgr import DataMgr as signalDataMgr
 from algoExecution.algoEngine.dataMgr import DataMgr as ExecDataMgr
+from algoExecution.algoEngine.eventMgr import EventMgr
+from algoSignal.algoEngine.dataMgr import DataMgr as signalDataMgr
 from algoSignal.algoEngine.signalMgr import SignalMgr
 from algoSignal.algoEngine.targetMgr import TargetMgr
 from algoUtils.loggerUtil import generate_logger
+from algoUtils.zmqUtil import ReqZmq
 
 logger = generate_logger(level='DEBUG')
 
@@ -40,10 +40,10 @@ class BrokerMgr:
         if not os.path.exists('../algoFile'):
             os.mkdir('../algoFile')
 
-        data_mgr = signalDataMgr(_data_type)
+        data_mgr = signalDataMgr()
         data_mgr.init_data_mgr()
         signal_mgr = SignalMgr(_signal_method_name, _signal_method_param, data_mgr)
-        signals = signal_mgr.start_task(_lag, _symbols, _start_timestamp, _end_timestamp)
+        signals = signal_mgr.start_task(_lag, _symbols, _data_type, _start_timestamp, _end_timestamp)
         if signals:
             pd.DataFrame(signals).to_csv('../algoFile/{}.csv'.format(_file_name))
 
@@ -60,10 +60,10 @@ class BrokerMgr:
             logger.error('empty file: {}'.format(_signal_file))
             return
 
-        data_mgr = signalDataMgr(_data_type)
+        data_mgr = signalDataMgr()
         data_mgr.init_data_mgr()
         target_mgr = TargetMgr(_target_method_name, _target_method_param, data_mgr)
-        targets = target_mgr.start_task(signals, _forward_window)
+        targets = target_mgr.start_task(signals, _data_type, _forward_window)
         pd.DataFrame(targets).to_csv('../algoFile/{}.csv'.format(_file_name))
 
     @classmethod
