@@ -112,20 +112,94 @@ class BrokerMgr:
         }
 
     @classmethod
-    def prepare_target_task(cls):
-        pass
-
-    @classmethod
     def prepare_execute_task(cls):
         pass
 
     @classmethod
-    def submit_cluster_tasks(cls, _task_name, _tasks, _update_codes=True):
+    def submit_target_tasks(
+            cls, _task_name, _signal_id, _target_method_name, _target_method_param, _data_type, _forward_window,
+            _update_codes=True
+    ):
+        zmq_client = ReqZmq(port, host)
+        while True:
+            try:
+                task_left = zmq_client.send_msg({'task_type': 'check', 'task': _signal_id})
+                if task_left is None:
+                    continue
+
+                elif not task_left:
+                    logger.info('{} finished'.format(_signal_id))
+                    break
+
+                logger.info('{} left {}'.format(_signal_id, task_left))
+                time.sleep(5)
+
+            except Exception as e:
+                logger.error(e)
+                time.sleep(60)
+
+        module_name = 'algoStrategy.target{}'.format(_target_method_name)
+        module = importlib.import_module(module_name)
+        script_content = inspect.getsource(module) if _update_codes else ''
+
+        task_dict = {'task_type': 'target', 'task': {'type': 'code', 'info': {
+            'module_name': _target_method_name, 'scripts': script_content
+        }}}
+        rsp = zmq_client.send_msg(task_dict)
+        if rsp != 'finished':
+            logger.error(rsp)
+            return
+
+        logger.info('strategy checked')
+        # submit tasks
+        task_dict = {
+            'task_type': 'target', 'task': {'task_name': _task_name, 'type': 'tasks', 'info': _target_method_param}
+        }
+        task_id = zmq_client.send_msg(task_dict)
+        logger.info('{} tasks submitted'.format(task_id))
+
+        while True:
+            try:
+                task_left = zmq_client.send_msg({'task_type': 'check', 'task': task_id})
+                if task_left is None:
+                    continue
+
+                elif not task_left:
+                    logger.info('{} finished'.format(task_id))
+                    break
+
+                logger.info('{} left {}'.format(task_id, task_left))
+                time.sleep(5)
+
+            except Exception as e:
+                logger.error(e)
+                time.sleep(60)
+
+        signal_ids = zmq_client.send_msg({'task_type': 'target_ids', 'task': task_id})
+        if isinstance(signal_ids, str):
+            logger.error(signal_ids)
+            return
+
+        all_signals = []
+        for signal_id in signal_ids:
+            signals = zmq_client.send_msg(
+                {'task_type': 'download', 'task': {'task_id': task_id, 'target_id': signal_id}}
+            )
+            if isinstance(signals, str):
+                logger.error(signals)
+                continue
+
+            all_signals.extend(signals or [])
+
+        if all_signals:
+            pd.DataFrame(all_signals).to_csv('../algoFile/cluster_targets_{}.csv'.format(task_id))
+
+    @classmethod
+    def submit_signal_tasks(cls, _task_name, _tasks, _update_codes=True):
         # update codes 2 remote server
         zmq_client = ReqZmq(port, host)
         module_names = set([v['_signal_method_name'] for v in _tasks])
 
-        task_id = str(uuid.uuid4())
         for name in module_names:
             module_name = 'algoStrategy.signal{}'.format(name)
             module = importlib.import_module(module_name)
@@ -145,9 +219,8 @@ class BrokerMgr:
         # submit tasks
         task_dict = {'task_type': 'signal', 'task': {'task_name': _task_name, 'type': 'tasks', 'info': _tasks}}
         task_id = zmq_client.send_msg(task_dict)
-        logger.info('tasks submitted')
+        logger.info('{} tasks submitted'.format(task_id))
 
-        # waiting for results
         while True:
             try:
                 task_left = zmq_client.send_msg({'task_type': 'check', 'task': task_id})
@@ -159,9 +232,8 @@ class BrokerMgr:
                     break
 
                 logger.info('{} left {}'.format(task_id, task_left))
+                time.sleep(5)
 
             except Exception as e:
                 logger.error(e)
-
-            finally:
-                time.sleep(5)
+                time.sleep(60)
