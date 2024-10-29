@@ -13,8 +13,8 @@ param = {
     '_signal_method_param': {'_grid': 0.001},
     '_data_type': 'trade',
     '_lag': 0.1,
-    '_start_timestamp': local_datetime_timestamp('2024-10-22 00:00:00'),
-    '_end_timestamp': local_datetime_timestamp('2024-10-22 10:00:00'),
+    '_start_timestamp': local_datetime_timestamp('2024-10-24 00:00:00'),
+    '_end_timestamp': local_datetime_timestamp('2024-10-29 10:00:00'),
 }
 
 # BrokerMgr.start_signal_task(
@@ -25,4 +25,4 @@ param = {
 
 symbols = ['btc_usdt|binance_future', 'eth_usdt|binance_future']
 tasks = [BrokerMgr.prepare_signal_task(_symbols=symbol, **param) for symbol in symbols]
-BrokerMgr.submit_signal_tasks('test', tasks, True)
+BrokerMgr.submit_signal_tasks('grids', tasks, True)

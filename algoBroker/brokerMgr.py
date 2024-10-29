@@ -6,6 +6,7 @@
 """
 import importlib
 import inspect
+import json
 import os
 import time
 import uuid
@@ -42,8 +43,9 @@ class BrokerMgr:
 
         data_mgr = signalDataMgr()
         data_mgr.init_data_mgr()
+        data_mgr.set_data_type(_data_type)
         signal_mgr = SignalMgr(_signal_method_name, _signal_method_param, data_mgr)
-        signals = signal_mgr.start_task(_lag, _symbols, _data_type, _start_timestamp, _end_timestamp)
+        signals = signal_mgr.start_task(_lag, _symbols, _start_timestamp, _end_timestamp)
         if signals:
             pd.DataFrame(signals).to_csv('../algoFile/{}.csv'.format(_file_name))
 
@@ -62,8 +64,14 @@ class BrokerMgr:
 
         data_mgr = signalDataMgr()
         data_mgr.init_data_mgr()
+        data_mgr.set_data_type(_data_type)
         target_mgr = TargetMgr(_target_method_name, _target_method_param, data_mgr)
-        targets = target_mgr.start_task(signals, _data_type, _forward_window)
+
+        targets = []
+        for signal in signals:
+            target = target_mgr.start_task(signal, _forward_window)
+            targets.append(target)
+
         pd.DataFrame(targets).to_csv('../algoFile/{}.csv'.format(_file_name))
 
     @classmethod
@@ -80,8 +88,9 @@ class BrokerMgr:
             logger.error('empty file: {}'.format(_signal_file))
             return
 
-        data_mgr = ExecDataMgr(_data_type)
+        data_mgr = ExecDataMgr()
         data_mgr.init_data_mgr()
+        data_mgr.set_data_type(_data_type)
         orders = []
         event_mgr = EventMgr(_execute_method, _execute_param, data_mgr, 'local')
         if _signal_type == SignalType.ISOLATED:
@@ -112,8 +121,38 @@ class BrokerMgr:
         }
 
     @classmethod
-    def prepare_execute_task(cls):
-        pass
+    def prepare_execute_task(cls, _exec_method_name, _exec_method_param, _data_type):
+        return {
+            '_execute_method': _exec_method_name,
+            '_execute_param': _exec_method_param,
+            '_data_type': _data_type,
+        }
+
+    @classmethod
+    def submit_exec_tasks(cls, _task_name, _tasks, _signal_id, _signal_type: SignalType):
+        zmq_client = ReqZmq(port, host)
+        task_dict = {'task_type': 'exec', 'task': {
+            'task_name': _task_name, 'signal_id': _signal_id, 'signal_type': _signal_type.name, 'info': _tasks
+        }}
+        task_id = zmq_client.send_msg(task_dict)
+        logger.info('{} tasks submitted'.format(task_id))
+
+        while True:
+            try:
+                task_left = zmq_client.send_msg({'task_type': 'check', 'task': task_id})
+                if task_left is None:
+                    continue
+
+                elif not task_left:
+                    logger.info('{} finished'.format(task_id))
+                    break
+
+                logger.info('{} left {}'.format(task_id, task_left))
+                time.sleep(5)
+
+            except Exception as e:
+                logger.error(e)
+                time.sleep(60)
 
     @classmethod
     def submit_target_tasks(
@@ -152,47 +191,56 @@ class BrokerMgr:
 
         logger.info('strategy checked')
         # submit tasks
-        task_dict = {
-            'task_type': 'target', 'task': {'task_name': _task_name, 'type': 'tasks', 'info': _target_method_param}
-        }
+        task_dict = {'task_type': 'target', 'task': {
+            'task_name': _task_name,
+            'signal_id': _signal_id,
+            'type': 'tasks',
+            'info': {
+                '_method_name': _target_method_name,
+                '_method_param': _target_method_param,
+                '_data_type': _data_type,
+                '_forward_window': _forward_window
+            }
+        }}
         task_id = zmq_client.send_msg(task_dict)
         logger.info('{} tasks submitted'.format(task_id))
+        cls.download_targets(task_id)
 
+    @classmethod
+    def download_targets(cls, _task_id):
+        zmq_client = ReqZmq(port, host)
         while True:
             try:
-                task_left = zmq_client.send_msg({'task_type': 'check', 'task': task_id})
+                task_left = zmq_client.send_msg({'task_type': 'check', 'task': _task_id})
                 if task_left is None:
                     continue
 
                 elif not task_left:
-                    logger.info('{} finished'.format(task_id))
+                    logger.info('{} finished'.format(_task_id))
                     break
 
-                logger.info('{} left {}'.format(task_id, task_left))
+                logger.info('{} left {}'.format(_task_id, task_left))
                 time.sleep(5)
 
             except Exception as e:
                 logger.error(e)
                 time.sleep(60)
 
-        signal_ids = zmq_client.send_msg({'task_type': 'target_ids', 'task': task_id})
-        if isinstance(signal_ids, str):
-            logger.error(signal_ids)
-            return
+        all_targets = []
+        while True:
+            try:
+                rsp = zmq_client.send_msg({'task_type': 'download', 'task': _task_id})
+                if isinstance(rsp, str):
+                    logger.info(rsp)
+                    break
 
-        all_signals = []
-        for signal_id in signal_ids:
-            signals = zmq_client.send_msg(
-                {'task_type': 'download', 'task': {'task_id': task_id, 'target_id': signal_id}}
-            )
-            if isinstance(signals, str):
-                logger.error(signals)
-                continue
+                all_targets.extend(rsp)
 
-            all_signals.extend(signals or [])
+            except Exception as e:
+                logger.error(e)
 
-        if all_signals:
-            pd.DataFrame(all_signals).to_csv('../algoFile/cluster_targets_{}.csv'.format(task_id))
+        if all_targets:
+            pd.DataFrame(all_targets).to_csv('../algoFile/cluster_targets_{}.csv'.format(_task_id))
 
     @classmethod
     def submit_signal_tasks(cls, _task_name, _tasks, _update_codes=True):
@@ -237,3 +285,7 @@ class BrokerMgr:
             except Exception as e:
                 logger.error(e)
                 time.sleep(60)
+
+
+if __name__ == '__main__':
+    BrokerMgr.download_targets('1730094802752734_test')
