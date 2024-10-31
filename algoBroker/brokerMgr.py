@@ -6,10 +6,8 @@
 """
 import importlib
 import inspect
-import json
 import os
 import time
-import uuid
 from enum import Enum
 
 import pandas as pd
@@ -136,23 +134,35 @@ class BrokerMgr:
         }}
         task_id = zmq_client.send_msg(task_dict)
         logger.info('{} tasks submitted'.format(task_id))
+        cls.download_orders(task_id)
 
+    @classmethod
+    def download_orders(cls, _task_id):
+        zmq_client = ReqZmq(port, host)
         while True:
             try:
-                task_left = zmq_client.send_msg({'task_type': 'check', 'task': task_id})
+                task_left = zmq_client.send_msg({'task_type': 'check', 'task': _task_id})
                 if task_left is None:
                     continue
 
                 elif not task_left:
-                    logger.info('{} finished'.format(task_id))
+                    logger.info('{} finished'.format(_task_id))
                     break
 
-                logger.info('{} left {}'.format(task_id, task_left))
+                logger.info('{} left {}'.format(_task_id, task_left))
                 time.sleep(5)
 
             except Exception as e:
                 logger.error(e)
                 time.sleep(60)
+
+        all_targets = zmq_client.send_msg({'task_type': 'download_orders', 'task': _task_id})
+        if isinstance(all_targets, str):
+            logger.error(all_targets)
+            return
+
+        if all_targets:
+            pd.DataFrame(all_targets).to_csv('../algoFile/cluster_orders_{}.csv'.format(_task_id))
 
     @classmethod
     def submit_target_tasks(
@@ -229,7 +239,7 @@ class BrokerMgr:
         all_targets = []
         while True:
             try:
-                rsp = zmq_client.send_msg({'task_type': 'download', 'task': _task_id})
+                rsp = zmq_client.send_msg({'task_type': 'download_targets', 'task': _task_id})
                 if isinstance(rsp, str):
                     logger.info(rsp)
                     break
