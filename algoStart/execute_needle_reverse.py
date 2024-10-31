@@ -4,6 +4,7 @@
 @File: execute_needle_reverse.py
 @Author: Jingyuan
 """
+import asyncio
 from algoBroker.brokerMgr import BrokerMgr, SignalType
 
 # BrokerMgr.start_execute_task(
@@ -22,6 +23,8 @@ from algoBroker.brokerMgr import BrokerMgr, SignalType
 #     _signal_file='grid_signals',
 # )
 
+loop = asyncio.get_event_loop()
+
 tasks = [
     BrokerMgr.prepare_execute_task(
         _exec_method_name='NeedleReverse',
@@ -38,4 +41,5 @@ tasks = [
     )
 ]
 
-BrokerMgr.submit_exec_tasks('exec_test', tasks, '1730167713735313_grids', SignalType.CONSECUTIVE)
+coro = BrokerMgr.submit_exec_tasks('exec_test', tasks, '1730167713735313_grids', SignalType.CONSECUTIVE)
+loop.run_until_complete(coro)
