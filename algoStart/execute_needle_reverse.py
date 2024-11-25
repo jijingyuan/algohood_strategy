@@ -24,22 +24,28 @@ from algoBroker.brokerMgr import BrokerMgr, SignalType
 # )
 
 loop = asyncio.get_event_loop()
+file = BrokerMgr.get_abstract_given_file_name('1732496745283229_grids').to_dict('records')
+if file:
+    tasks = [
+        BrokerMgr.prepare_execute_task(
+            _exec_method_name='NeedleReverse',
+            _exec_method_param={
+                '_direction': 'long',
+                '_holding_spread': 0.0001,
+                '_trigger_grid': 0.003,
+                '_profit_grid': 0.002,
+                '_stop_grid': 0.002,
+                '_trigger_expire': None,
+                '_stop_delay': 1
+            },
+            _data_type='trade'
+        )
+    ]
 
-tasks = [
-    BrokerMgr.prepare_execute_task(
-        _exec_method_name='NeedleReverse',
-        _exec_method_param={
-            '_direction': 'long',
-            '_holding_spread': 0.0001,
-            '_trigger_grid': 0.003,
-            '_profit_grid': 0.002,
-            '_stop_grid': 0.002,
-            '_trigger_expire': None,
-            '_stop_delay': 1
-        },
-        _data_type='trade'
+    coro = BrokerMgr.submit_exec_tasks(
+        _task_name='exec_test',
+        _tasks=tasks,
+        _signal_ids=[v['result_id'] for v in file],
+        _signal_type=SignalType.CONSECUTIVE
     )
-]
-
-coro = BrokerMgr.submit_exec_tasks('exec_test', tasks, '1730167713735313_grids', SignalType.CONSECUTIVE)
-loop.run_until_complete(coro)
+    loop.run_until_complete(coro)

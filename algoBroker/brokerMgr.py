@@ -6,8 +6,10 @@
 """
 import importlib
 import inspect
+import json
 import os
 import time
+import gzip
 from enum import Enum
 
 import pandas as pd
@@ -30,6 +32,14 @@ class SignalType(Enum):
 
 
 class BrokerMgr:
+
+    @staticmethod
+    def get_abstract_given_file_name(_file_name):
+        try:
+            file = pd.read_csv('../algoFile/abstract_{}.csv'.format(_file_name))
+            return file
+        except Exception as e:
+            logger.error(e)
 
     @classmethod
     async def start_signal_task(
@@ -127,66 +137,71 @@ class BrokerMgr:
         }
 
     @classmethod
-    async def submit_exec_tasks(cls, _task_name, _tasks, _signal_id, _signal_type: SignalType):
+    async def submit_exec_tasks(cls, _task_name, _tasks, _signal_ids, _signal_type: SignalType):
         zmq_client = AsyncReqZmq(port, host)
         task_dict = {'task_type': 'exec', 'task': {
-            'task_name': _task_name, 'signal_id': _signal_id, 'signal_type': _signal_type.name, 'info': _tasks
+            'task_name': _task_name, 'signal_ids': _signal_ids, 'signal_type': _signal_type.name, 'info': _tasks
         }}
-        task_id = await zmq_client.send_msg(task_dict)
-        logger.info('{} tasks submitted'.format(task_id))
-        await cls.download_orders(task_id)
+
+        tmp = await zmq_client.send_msg(json.dumps(task_dict).encode())
+        rsp = json.loads(tmp.decode())
+        if rsp['code'] == 200:
+            logger.info('{} tasks submitted'.format(rsp['msg']))
+            await cls.download_abstract(rsp['msg'])
+        else:
+            logger.error(rsp['msg'])
 
     @classmethod
-    async def download_orders(cls, _task_id):
+    async def download_orders(cls, _task_id, _separate=True):
         zmq_client = AsyncReqZmq(port, host)
-        while True:
+        abstract = pd.read_csv('../algoFile/abstract_{}.csv'.format(_task_id)).to_dict('records')
+        if not abstract:
+            logger.error('abstract does not exist')
+            return
+
+        if not os.path.exists('../algoFile/cluster_orders_{}'.format(_task_id)):
+            os.mkdir('../algoFile/cluster_orders_{}'.format(_task_id))
+
+        orders = []
+        signal_ids = list(set([v['_signal_id'] for v in abstract]))
+        while signal_ids:
             try:
-                task_left = await zmq_client.send_msg({'task_type': 'check', 'task': _task_id})
-                if task_left is None:
-                    continue
+                signal_id = signal_ids.pop(0)
+                task_dict = {'task_type': 'download_orders', 'task': {
+                    'task_id': _task_id, 'signal_id': signal_id
+                }}
+                tmp = await zmq_client.send_msg(json.dumps(task_dict).encode())
+                decompressed = gzip.decompress(tmp)
+                rsp = json.loads(decompressed.decode())
+                if rsp['code'] == 250:
+                    logger.error(rsp['msg'])
+                    return
 
-                elif not task_left:
-                    logger.info('{} finished'.format(_task_id))
-                    break
+                elif _separate:
 
-                logger.info('{} left {}'.format(_task_id, task_left))
-                time.sleep(5)
+                    pd.DataFrame(rsp['msg']).to_csv(
+                        '../algoFile/cluster_orders_{}/{}.csv'.format(_task_id, signal_id)
+                    )
+                    logger.info('{} finished: {}'.format(signal_id, len(rsp['msg'])))
+
+                else:
+                    orders.extend(rsp['msg'])
 
             except Exception as e:
                 logger.error(e)
                 time.sleep(60)
 
-        all_targets = await zmq_client.send_msg({'task_type': 'download_orders', 'task': _task_id})
-        if isinstance(all_targets, str):
-            logger.error(all_targets)
-            return
-
-        if all_targets:
-            pd.DataFrame(all_targets).to_csv('../algoFile/cluster_orders_{}.csv'.format(_task_id))
+        if orders:
+            pd.DataFrame(orders).to_csv('../algoFile/cluster_all_orders_{}.csv'.format(_task_id))
+            logger.info('{} finished: {}'.format(_task_id, len(orders)))
 
     @classmethod
     async def submit_target_tasks(
-            cls, _task_name, _signal_id, _target_method_name, _target_method_param, _data_type, _forward_window,
+            cls, _task_name, _signal_ids, _target_method_name, _target_method_param, _data_type, _forward_window,
             _update_codes=True
     ):
+        assert isinstance(_signal_ids, list)
         zmq_client = AsyncReqZmq(port, host)
-        while True:
-            try:
-                task_left = await zmq_client.send_msg({'task_type': 'check', 'task': _signal_id})
-                if task_left is None:
-                    continue
-
-                elif not task_left:
-                    logger.info('{} finished'.format(_signal_id))
-                    break
-
-                logger.info('{} left {}'.format(_signal_id, task_left))
-                time.sleep(5)
-
-            except Exception as e:
-                logger.error(e)
-                time.sleep(60)
-
         module_name = 'algoStrategy.target{}'.format(_target_method_name)
         module = importlib.import_module(module_name)
         script_content = inspect.getsource(module) if _update_codes else ''
@@ -194,16 +209,17 @@ class BrokerMgr:
         task_dict = {'task_type': 'target', 'task': {'type': 'code', 'info': {
             'module_name': _target_method_name, 'scripts': script_content
         }}}
-        rsp = await zmq_client.send_msg(task_dict)
-        if rsp != 'finished':
-            logger.error(rsp)
+        tmp = await zmq_client.send_msg(json.dumps(task_dict).encode())
+        rsp = json.loads(tmp.decode())
+        if rsp['msg'] != 'finished':
+            logger.error(rsp['msg'])
             return
 
         logger.info('strategy checked')
         # submit tasks
         task_dict = {'task_type': 'target', 'task': {
             'task_name': _task_name,
-            'signal_id': _signal_id,
+            'signal_ids': _signal_ids,
             'type': 'tasks',
             'info': {
                 '_method_name': _target_method_name,
@@ -212,39 +228,35 @@ class BrokerMgr:
                 '_forward_window': _forward_window
             }
         }}
-        task_id = await zmq_client.send_msg(task_dict)
-        logger.info('{} tasks submitted'.format(task_id))
-        await cls.download_targets(task_id)
+        tmp = await zmq_client.send_msg(json.dumps(task_dict).encode())
+        rsp = json.loads(tmp.decode())
+        if rsp['code'] == 200:
+            logger.info('{} tasks submitted'.format(rsp['msg']))
+            await cls.download_targets(rsp['msg'])
+        else:
+            logger.error(rsp['msg'])
 
     @classmethod
     async def download_targets(cls, _task_id):
         zmq_client = AsyncReqZmq(port, host)
-        while True:
-            try:
-                task_left = await zmq_client.send_msg({'task_type': 'check', 'task': _task_id})
-                if task_left is None:
-                    continue
-
-                elif not task_left:
-                    logger.info('{} finished'.format(_task_id))
-                    break
-
-                logger.info('{} left {}'.format(_task_id, task_left))
-                time.sleep(5)
-
-            except Exception as e:
-                logger.error(e)
-                time.sleep(60)
+        if not await cls.check_left(zmq_client, _task_id):
+            return
 
         all_targets = []
         while True:
             try:
-                rsp = zmq_client.send_msg({'task_type': 'download_targets', 'task': _task_id})
-                if isinstance(rsp, str):
-                    logger.info(rsp)
+                task_dict = {'task_type': 'download_targets', 'task': _task_id}
+                tmp = await zmq_client.send_msg(json.dumps(task_dict).encode())
+                targets = json.loads(tmp.decode())
+                if targets['code'] == 250:
+                    logger.error(targets['error'])
+                    return
+
+                elif targets['msg'] == 'finished':
                     break
 
-                all_targets.extend(rsp)
+                else:
+                    all_targets.extend(targets['msg'])
 
             except Exception as e:
                 logger.error(e)
@@ -266,31 +278,60 @@ class BrokerMgr:
             task_dict = {'task_type': 'signal', 'task': {'type': 'code', 'info': {
                 'module_name': name, 'scripts': script_content
             }}}
-            rsp = await zmq_client.send_msg(task_dict)
-            if rsp == 'finished':
+            tmp = await zmq_client.send_msg(json.dumps(task_dict).encode())
+            rsp = json.loads(tmp.decode())
+            if rsp['msg'] == 'finished':
                 continue
-
-            logger.error(rsp)
-            return
+            else:
+                logger.error(rsp['msg'])
+                return
 
         logger.info('strategy checked')
         # submit tasks
         task_dict = {'task_type': 'signal', 'task': {'task_name': _task_name, 'type': 'tasks', 'info': _tasks}}
-        task_id = await zmq_client.send_msg(task_dict)
-        logger.info('{} tasks submitted'.format(task_id))
+        tmp = await zmq_client.send_msg(json.dumps(task_dict).encode())
+        rsp = json.loads(tmp.decode())
+        if rsp['code'] == 200:
+            logger.info('{} tasks submitted'.format(rsp['msg']))
+            await cls.download_abstract(rsp['msg'])
+        else:
+            logger.error(rsp['msg'])
 
+    @classmethod
+    async def download_abstract(cls, _task_id):
+        zmq_client = AsyncReqZmq(port, host)
+        if not await cls.check_left(zmq_client, _task_id):
+            return
+
+        # download abstract
+        task_dict = {'task_type': 'download_abstract', 'task': _task_id}
+        tmp = await zmq_client.send_msg(json.dumps(task_dict).encode())
+        rsp = json.loads(tmp.decode())
+        if rsp['code'] == 200:
+            pd.DataFrame(rsp['msg']).to_csv('../algoFile/abstract_{}.csv'.format(_task_id))
+            logger.info('{} abstract saved'.format(_task_id))
+
+        else:
+            logger.info('{} not available: {}'.format(_task_id, rsp['msg']))
+
+    @classmethod
+    async def check_left(cls, _zmq_client, _task_id) -> bool:
         while True:
             try:
-                task_left = await zmq_client.send_msg({'task_type': 'check', 'task': task_id})
-                if task_left is None:
-                    continue
+                msg = json.dumps({'task_type': 'check', 'task': _task_id}).encode()
+                tmp = await _zmq_client.send_msg(msg)
+                rsp = json.loads(tmp.decode())
+                if rsp['code'] == 200:
+                    if rsp['msg'] is None:
+                        logger.info('{} finished'.format(_task_id))
+                        return True
 
-                elif not task_left:
-                    logger.info('{} finished'.format(task_id))
-                    break
+                    logger.info('{} left {}'.format(_task_id, rsp['msg']))
+                    time.sleep(5)
 
-                logger.info('{} left {}'.format(task_id, task_left))
-                time.sleep(5)
+                else:
+                    logger.error(rsp['msg'])
+                    return False
 
             except Exception as e:
                 logger.error(e)
@@ -298,4 +339,8 @@ class BrokerMgr:
 
 
 if __name__ == '__main__':
-    BrokerMgr.download_targets('1730094802752734_test')
+    import asyncio
+
+    loop = asyncio.get_event_loop()
+    coro = BrokerMgr.download_orders('1732540733065112_exec_test', False)
+    loop.run_until_complete(coro)
