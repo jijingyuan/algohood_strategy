@@ -4,19 +4,17 @@
 @File: brokerMgr.py
 @Author: Jingyuan
 """
+import gzip
 import importlib
 import inspect
 import json
 import os
 import time
-import gzip
 from enum import Enum
 
 import pandas as pd
 
 from algoConfig.zmqConfig import host, port
-from algoExecution.algoEngine.dataMgr import DataMgr as ExecDataMgr
-from algoExecution.algoEngine.eventMgr import EventMgr
 from algoSignal.algoEngine.dataMgr import DataMgr as signalDataMgr
 from algoSignal.algoEngine.signalMgr import SignalMgr
 from algoSignal.algoEngine.targetMgr import TargetMgr
@@ -42,83 +40,12 @@ class BrokerMgr:
             logger.error(e)
 
     @classmethod
-    async def start_signal_task(
-            cls, _signal_method_name, _signal_method_param, _data_type, _symbols, _lag, _start_timestamp,
-            _end_timestamp, _file_name
-    ):
-        if not os.path.exists('../algoFile'):
-            os.mkdir('../algoFile')
-
-        data_mgr = signalDataMgr()
-        await data_mgr.init_data_mgr()
-        data_mgr.set_data_type(_data_type)
-        signal_mgr = SignalMgr(_signal_method_name, _signal_method_param, data_mgr)
-        signals = await signal_mgr.start_task(_lag, _symbols, _start_timestamp, _end_timestamp)
-        if signals:
-            pd.DataFrame(signals).to_csv('../algoFile/{}.csv'.format(_file_name))
-
-    @classmethod
-    async def start_target_task(
-            cls, _target_method_name, _target_method_param, _data_type, _forward_window, _signal_file, _file_name
-    ):
-        if not os.path.exists('../algoFile'):
-            os.mkdir('../algoFile')
-
-        path = '../algoFile/{}.csv'.format(_signal_file)
-        signals = pd.read_csv(path).to_dict('records')
-        if not signals:
-            logger.error('empty file: {}'.format(_signal_file))
-            return
-
-        data_mgr = signalDataMgr()
-        await data_mgr.init_data_mgr()
-        data_mgr.set_data_type(_data_type)
-        target_mgr = TargetMgr(_target_method_name, _target_method_param, data_mgr)
-
-        targets = []
-        for signal in signals:
-            target = await target_mgr.start_task(signal, _forward_window)
-            targets.append(target)
-
-        pd.DataFrame(targets).to_csv('../algoFile/{}.csv'.format(_file_name))
-
-    @classmethod
-    async def start_execute_task(
-            cls, _execute_method, _execute_param, _data_type, _signal_type: SignalType, _signal_file,
-    ):
-
-        if not os.path.exists('../algoFile'):
-            os.mkdir('../algoFile')
-
-        path = '../algoFile/{}.csv'.format(_signal_file)
-        signals = pd.read_csv(path).to_dict('records')
-        if not signals:
-            logger.error('empty file: {}'.format(_signal_file))
-            return
-
-        data_mgr = ExecDataMgr()
-        await data_mgr.init_data_mgr()
-        data_mgr.set_data_type(_data_type)
-        orders = []
-        event_mgr = EventMgr(_execute_method, _execute_param, data_mgr, 'local')
-        if _signal_type == SignalType.ISOLATED:
-            for signal in signals:
-                await event_mgr.load_signals([signal])
-                orders.extend(await event_mgr.start_task())
-
-        elif _signal_type == SignalType.CONSECUTIVE:
-            await event_mgr.load_signals(signals)
-            orders.extend(await event_mgr.start_task())
-
-        if orders:
-            pd.DataFrame(orders).to_csv('../algoFile/orders_{}.csv'.format(_signal_file))
-
-    @classmethod
     def prepare_signal_task(
-            cls, _signal_method_name, _signal_method_param, _data_type, _symbols, _lag, _start_timestamp,
+            cls, _signal_name, _signal_method_name, _signal_method_param, _data_type, _symbols, _lag, _start_timestamp,
             _end_timestamp
     ):
         return {
+            '_signal_name': _signal_name,
             '_signal_method_name': _signal_method_name,
             '_signal_method_param': _signal_method_param,
             '_symbols': _symbols,
@@ -129,12 +56,162 @@ class BrokerMgr:
         }
 
     @classmethod
-    def prepare_execute_task(cls, _exec_method_name, _exec_method_param, _data_type):
+    def prepare_target_task(cls, _target_name, _target_method_name, _target_method_param, _data_type, _forward_window):
         return {
+            '_target_name': _target_name,
+            '_target_method_name': _target_method_name,
+            '_target_method_param': _target_method_param,
+            '_data_type': _data_type,
+            '_forward_window': _forward_window
+        }
+
+    @classmethod
+    def prepare_execute_task(cls, _execute_name, _exec_method_name, _exec_method_param, _data_type):
+        return {
+            '_execute_name': _execute_name,
             '_execute_method': _exec_method_name,
             '_execute_param': _exec_method_param,
             '_data_type': _data_type,
         }
+
+    @classmethod
+    async def submit_signal_tasks(cls, _task_name, _tasks, _update_codes=True, _use_cluster=False):
+        if _use_cluster:
+            signal_names = [v['_signal_name'] for v in _tasks]
+            if len(signal_names) > len(set(signal_names)):
+                logger.error('duplicated signal names')
+                return
+
+            zmq_client = AsyncReqZmq(port, host)
+            module_names = set([v['_signal_method_name'] for v in _tasks])
+
+            for name in module_names:
+                module_name = 'algoStrategy.signal{}'.format(name)
+                module = importlib.import_module(module_name)
+                script_content = inspect.getsource(module) if _update_codes else ''
+
+                task_dict = {'task_type': 'signal', 'task': {'type': 'code', 'info': {
+                    'module_name': name, 'scripts': script_content
+                }}}
+                tmp = await zmq_client.send_msg(json.dumps(task_dict).encode())
+                rsp = json.loads(tmp.decode())
+                if rsp['msg'] != 'finished':
+                    logger.error(rsp['msg'])
+                    return
+
+            logger.info('strategy checked')
+            task_dict = {'task_type': 'signal', 'task': {'task_name': _task_name, 'type': 'tasks', 'info': _tasks}}
+            tmp = await zmq_client.send_msg(json.dumps(task_dict).encode())
+            rsp = json.loads(tmp.decode())
+            if rsp['code'] == 200:
+                logger.info('{} tasks submitted'.format(rsp['msg']))
+                await cls.download_abstract(rsp['msg'])
+            else:
+                logger.error(rsp['msg'])
+
+        else:
+            if not os.path.exists('../algoFile'):
+                os.mkdir('../algoFile')
+
+            file_name = '{}_{}'.format(int(time.time() * 1000000), _task_name)
+            folder_name = 'local_{}'.format(file_name)
+            os.mkdir('../algoFile/{}'.format(folder_name))
+
+            data_mgr = signalDataMgr()
+            await data_mgr.init_data_mgr()
+            abstract_list = []
+            for task in _tasks:
+                data_mgr.clear_cache()
+                signal_name = task.pop('_signal_name')
+                saving_name = '{}/{}'.format(folder_name, signal_name)
+                param = task.copy()
+                data_mgr.set_data_type(task.pop('_data_type'))
+                signal_mgr = SignalMgr(
+                    task.pop('_signal_method_name'),
+                    task.pop('_signal_method_param'),
+                    data_mgr
+                )
+                signals = await signal_mgr.start_task(**task)
+
+                if signals:
+                    abstract_list.append({'result_id': saving_name, 'result_counts': len(signals), **param})
+                    pd.DataFrame(signals).to_csv('../algoFile/{}.csv'.format(saving_name))
+                    logger.info('{} finished'.format(signal_name))
+
+            if abstract_list:
+                pd.DataFrame(abstract_list).to_csv('../algoFile/abstract_{}.csv'.format(file_name))
+
+            logger.info('{} finished'.format(file_name))
+
+    @classmethod
+    async def submit_target_tasks(cls, _task_name, _tasks, _signal_ids, _update_codes=True, _use_cluster=False):
+        if _use_cluster:
+            zmq_client = AsyncReqZmq(port, host)
+            module_names = set([v['_target_method_name'] for v in _tasks])
+
+            for name in module_names:
+                module_name = 'algoStrategy.target{}'.format(name)
+                module = importlib.import_module(module_name)
+                script_content = inspect.getsource(module) if _update_codes else ''
+
+                task_dict = {'task_type': 'target', 'task': {'type': 'code', 'info': {
+                    'module_name': name, 'scripts': script_content
+                }}}
+                tmp = await zmq_client.send_msg(json.dumps(task_dict).encode())
+                rsp = json.loads(tmp.decode())
+                if rsp['msg'] != 'finished':
+                    logger.error(rsp['msg'])
+                    return
+
+            task_dict = {'task_type': 'target', 'task': {
+                'type': 'tasks', 'task_name': _task_name, 'signal_ids': _signal_ids, 'info': _tasks
+            }}
+
+            tmp = await zmq_client.send_msg(json.dumps(task_dict).encode())
+            rsp = json.loads(tmp.decode())
+            if rsp['code'] == 200:
+                logger.info('{} tasks submitted'.format(rsp['msg']))
+                await cls.download_abstract(rsp['msg'])
+            else:
+                logger.error(rsp['msg'])
+
+        else:
+            if not os.path.exists('../algoFile'):
+                os.mkdir('../algoFile')
+
+            file_name = '{}_{}'.format(int(time.time() * 1000000), _task_name)
+            folder_name = 'local_{}'.format(file_name)
+            os.mkdir('../algoFile/{}'.format(folder_name))
+
+            data_mgr = signalDataMgr()
+            await data_mgr.init_data_mgr()
+
+            for task in _tasks:
+                task_name = task['_target_name']
+                data_mgr.set_data_type(task['_data_type'])
+                target_mgr = TargetMgr(
+                    task['_target_method_name'],
+                    task['_target_method_param'],
+                    data_mgr
+                )
+
+                task_path = '../algoFile/{}/{}'.format(folder_name, task_name)
+                os.mkdir(task_path)
+                for signal_id in _signal_ids:
+                    _, signal_name = signal_id.split('/')
+                    signal_path = '../algoFile/{}.csv'.format(signal_id)
+                    signals = pd.read_csv(signal_path).to_dict('records')
+                    targets = []
+                    for signal in signals:
+                        signal.pop('Unnamed: 0', None)
+                        target = await target_mgr.start_task(signal, task['_forward_window'])
+                        targets.append(target)
+
+                    if targets:
+                        pd.DataFrame(targets).to_csv('{}/{}.csv'.format(task_path, signal_name))
+                        logger.info('{}/{} finished'.format(task_name, signal_name))
+
+            logger.info('{} finished'.format(file_name))
 
     @classmethod
     async def submit_exec_tasks(cls, _task_name, _tasks, _signal_ids, _signal_type: SignalType):
@@ -152,23 +229,21 @@ class BrokerMgr:
             logger.error(rsp['msg'])
 
     @classmethod
-    async def download_orders(cls, _task_id, _separate=True):
+    async def download_results(cls, _task_id):
         zmq_client = AsyncReqZmq(port, host)
-        abstract = pd.read_csv('../algoFile/abstract_{}.csv'.format(_task_id)).to_dict('records')
-        if not abstract:
+        abstract_list = pd.read_csv('../algoFile/abstract_{}.csv'.format(_task_id)).to_dict('records')
+        if not abstract_list:
             logger.error('abstract does not exist')
             return
 
-        if not os.path.exists('../algoFile/cluster_orders_{}'.format(_task_id)):
-            os.mkdir('../algoFile/cluster_orders_{}'.format(_task_id))
+        folder_path = '../algoFile/cluster_{}'.format(_task_id)
+        os.mkdir(folder_path)
 
-        orders = []
-        signal_ids = list(set([v['_signal_id'] for v in abstract]))
-        while signal_ids:
+        while abstract_list:
             try:
-                signal_id = signal_ids.pop(0)
-                task_dict = {'task_type': 'download_orders', 'task': {
-                    'task_id': _task_id, 'signal_id': signal_id
+                abstract = abstract_list.pop(0)
+                task_dict = {'task_type': 'download_results', 'task': {
+                    'task_id': _task_id, 'result_id': abstract['result_id']
                 }}
                 tmp = await zmq_client.send_msg(json.dumps(task_dict).encode())
                 decompressed = gzip.decompress(tmp)
@@ -177,125 +252,19 @@ class BrokerMgr:
                     logger.error(rsp['msg'])
                     return
 
-                elif _separate:
+                if rsp['msg']:
+                    file_path = '{}/{}'.format(folder_path, abstract['task_name'])
+                    if not os.path.exists(file_path):
+                        os.mkdir(file_path)
 
-                    pd.DataFrame(rsp['msg']).to_csv(
-                        '../algoFile/cluster_orders_{}/{}.csv'.format(_task_id, signal_id)
-                    )
-                    logger.info('{} finished: {}'.format(signal_id, len(rsp['msg'])))
-
-                else:
-                    orders.extend(rsp['msg'])
+                    pd.DataFrame(rsp['msg']).to_csv('{}/{}.csv'.format(file_path, abstract['signal_name']))
+                    logger.info('{}/{} finished: {}'.format(
+                        abstract['task_name'], abstract['signal_name'], len(rsp['msg'])
+                    ))
 
             except Exception as e:
                 logger.error(e)
                 time.sleep(60)
-
-        if orders:
-            pd.DataFrame(orders).to_csv('../algoFile/cluster_all_orders_{}.csv'.format(_task_id))
-            logger.info('{} finished: {}'.format(_task_id, len(orders)))
-
-    @classmethod
-    async def submit_target_tasks(
-            cls, _task_name, _signal_ids, _target_method_name, _target_method_param, _data_type, _forward_window,
-            _update_codes=True
-    ):
-        assert isinstance(_signal_ids, list)
-        zmq_client = AsyncReqZmq(port, host)
-        module_name = 'algoStrategy.target{}'.format(_target_method_name)
-        module = importlib.import_module(module_name)
-        script_content = inspect.getsource(module) if _update_codes else ''
-
-        task_dict = {'task_type': 'target', 'task': {'type': 'code', 'info': {
-            'module_name': _target_method_name, 'scripts': script_content
-        }}}
-        tmp = await zmq_client.send_msg(json.dumps(task_dict).encode())
-        rsp = json.loads(tmp.decode())
-        if rsp['msg'] != 'finished':
-            logger.error(rsp['msg'])
-            return
-
-        logger.info('strategy checked')
-        # submit tasks
-        task_dict = {'task_type': 'target', 'task': {
-            'task_name': _task_name,
-            'signal_ids': _signal_ids,
-            'type': 'tasks',
-            'info': {
-                '_method_name': _target_method_name,
-                '_method_param': _target_method_param,
-                '_data_type': _data_type,
-                '_forward_window': _forward_window
-            }
-        }}
-        tmp = await zmq_client.send_msg(json.dumps(task_dict).encode())
-        rsp = json.loads(tmp.decode())
-        if rsp['code'] == 200:
-            logger.info('{} tasks submitted'.format(rsp['msg']))
-            await cls.download_targets(rsp['msg'])
-        else:
-            logger.error(rsp['msg'])
-
-    @classmethod
-    async def download_targets(cls, _task_id):
-        zmq_client = AsyncReqZmq(port, host)
-        if not await cls.check_left(zmq_client, _task_id):
-            return
-
-        all_targets = []
-        while True:
-            try:
-                task_dict = {'task_type': 'download_targets', 'task': _task_id}
-                tmp = await zmq_client.send_msg(json.dumps(task_dict).encode())
-                targets = json.loads(tmp.decode())
-                if targets['code'] == 250:
-                    logger.error(targets['error'])
-                    return
-
-                elif targets['msg'] == 'finished':
-                    break
-
-                else:
-                    all_targets.extend(targets['msg'])
-
-            except Exception as e:
-                logger.error(e)
-
-        if all_targets:
-            pd.DataFrame(all_targets).to_csv('../algoFile/cluster_targets_{}.csv'.format(_task_id))
-
-    @classmethod
-    async def submit_signal_tasks(cls, _task_name, _tasks, _update_codes=True):
-        # update codes 2 remote server
-        zmq_client = AsyncReqZmq(port, host)
-        module_names = set([v['_signal_method_name'] for v in _tasks])
-
-        for name in module_names:
-            module_name = 'algoStrategy.signal{}'.format(name)
-            module = importlib.import_module(module_name)
-            script_content = inspect.getsource(module) if _update_codes else ''
-
-            task_dict = {'task_type': 'signal', 'task': {'type': 'code', 'info': {
-                'module_name': name, 'scripts': script_content
-            }}}
-            tmp = await zmq_client.send_msg(json.dumps(task_dict).encode())
-            rsp = json.loads(tmp.decode())
-            if rsp['msg'] == 'finished':
-                continue
-            else:
-                logger.error(rsp['msg'])
-                return
-
-        logger.info('strategy checked')
-        # submit tasks
-        task_dict = {'task_type': 'signal', 'task': {'task_name': _task_name, 'type': 'tasks', 'info': _tasks}}
-        tmp = await zmq_client.send_msg(json.dumps(task_dict).encode())
-        rsp = json.loads(tmp.decode())
-        if rsp['code'] == 200:
-            logger.info('{} tasks submitted'.format(rsp['msg']))
-            await cls.download_abstract(rsp['msg'])
-        else:
-            logger.error(rsp['msg'])
 
     @classmethod
     async def download_abstract(cls, _task_id):
@@ -342,5 +311,6 @@ if __name__ == '__main__':
     import asyncio
 
     loop = asyncio.get_event_loop()
-    coro = BrokerMgr.download_orders('1732540733065112_exec_test', False)
+    # coro = BrokerMgr.download_abstract('1732671908127699_grids')
+    coro = BrokerMgr.download_results('1732779350854121_exec_test')
     loop.run_until_complete(coro)

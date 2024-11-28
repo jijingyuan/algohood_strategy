@@ -9,6 +9,7 @@ import time
 from algoBroker.brokerMgr import BrokerMgr
 
 BrokerMgr.start_signal_task(
+    _signal_name='ma_btc_usdt',
     _signal_method_name='MA',
     _signal_method_param={
         '_short_term': 5,

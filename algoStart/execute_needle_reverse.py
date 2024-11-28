@@ -7,30 +7,16 @@
 import asyncio
 from algoBroker.brokerMgr import BrokerMgr, SignalType
 
-# BrokerMgr.start_execute_task(
-#     _execute_method='NeedleReverse',
-#     _execute_param={
-#         '_direction': 'long',
-#         '_holding_spread': 0.0001,
-#         '_trigger_grid': 0.003,
-#         '_profit_grid': 0.002,
-#         '_stop_grid': 0.002,
-#         '_trigger_expire': None,
-#         '_stop_delay': 1
-#     },
-#     _data_type='trade',
-#     _signal_type=SignalType.CONSECUTIVE,
-#     _signal_file='grid_signals',
-# )
-
 loop = asyncio.get_event_loop()
-file = BrokerMgr.get_abstract_given_file_name('1732496745283229_grids').to_dict('records')
+
+file = BrokerMgr.get_abstract_given_file_name('1732774433867851_grids').to_dict('records')
 if file:
     tasks = [
         BrokerMgr.prepare_execute_task(
+            _execute_name='needle_{}'.format(direction),
             _exec_method_name='NeedleReverse',
             _exec_method_param={
-                '_direction': 'long',
+                '_direction': direction,
                 '_holding_spread': 0.0001,
                 '_trigger_grid': 0.003,
                 '_profit_grid': 0.002,
@@ -40,6 +26,7 @@ if file:
             },
             _data_type='trade'
         )
+        for direction in ['long', 'short']
     ]
 
     coro = BrokerMgr.submit_exec_tasks(

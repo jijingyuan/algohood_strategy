@@ -7,6 +7,7 @@
 from algoBroker.brokerMgr import BrokerMgr, SignalType
 
 BrokerMgr.start_execute_task(
+    _execute_name='needle_test',
     _execute_method='NeedleReverse',
     _execute_param={
         '_direction': 'short',

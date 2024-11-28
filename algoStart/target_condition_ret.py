@@ -18,16 +18,22 @@ loop = asyncio.get_event_loop()
 #     _file_name='ret_ma'
 # )
 
-file = BrokerMgr.get_abstract_given_file_name('1732412132041939_grids').to_dict('records')
-if file is not None:
-    signal_ids = [v['result_id'] for v in file]
+file = BrokerMgr.get_abstract_given_file_name('1732774433867851_grids').to_dict('records')
+if file:
+    tasks = [
+        BrokerMgr.prepare_target_task(
+            _target_name='condition_ret_5',
+            _target_method_name='ConditionRet',
+            _target_method_param={},
+            _data_type='trade',
+            _forward_window=60 * 5
+        )
+    ]
+
     coro = BrokerMgr.submit_target_tasks(
-        _task_name='test',
-        _signal_ids=signal_ids,
-        _target_method_name='ConditionRet',
-        _target_method_param={},
-        _data_type='trade',
-        _forward_window=60 * 5,
-        _update_codes=True
+        _task_name='target_test',
+        _tasks=tasks,
+        _signal_ids=[v['result_id'] for v in file],
+        _use_cluster=True
     )
     loop.run_until_complete(coro)
