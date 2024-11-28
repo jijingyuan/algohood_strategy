@@ -76,12 +76,12 @@ class BrokerMgr:
 
     @classmethod
     async def submit_signal_tasks(cls, _task_name, _tasks, _update_codes=True, _use_cluster=False):
-        if _use_cluster:
-            signal_names = [v['_signal_name'] for v in _tasks]
-            if len(signal_names) > len(set(signal_names)):
-                logger.error('duplicated signal names')
-                return
+        signal_names = [v['_signal_name'] for v in _tasks]
+        if len(signal_names) > len(set(signal_names)):
+            logger.error('duplicated signal names')
+            return
 
+        if _use_cluster:
             zmq_client = AsyncReqZmq(port, host)
             module_names = set([v['_signal_method_name'] for v in _tasks])
 
@@ -145,6 +145,11 @@ class BrokerMgr:
 
     @classmethod
     async def submit_target_tasks(cls, _task_name, _tasks, _signal_ids, _update_codes=True, _use_cluster=False):
+        target_names = [v['_target_name'] for v in _tasks]
+        if len(target_names) > len(set(target_names)):
+            logger.error('duplicated target names')
+            return
+
         if _use_cluster:
             zmq_client = AsyncReqZmq(port, host)
             module_names = set([v['_target_method_name'] for v in _tasks])
@@ -215,6 +220,11 @@ class BrokerMgr:
 
     @classmethod
     async def submit_exec_tasks(cls, _task_name, _tasks, _signal_ids, _signal_type: SignalType):
+        execute_names = [v['_execute_name'] for v in _tasks]
+        if len(execute_names) > len(set(execute_names)):
+            logger.error('duplicated execute names')
+            return
+
         zmq_client = AsyncReqZmq(port, host)
         task_dict = {'task_type': 'exec', 'task': {
             'task_name': _task_name, 'signal_ids': _signal_ids, 'signal_type': _signal_type.name, 'info': _tasks
