@@ -9,13 +9,13 @@ from algoBroker.brokerMgr import BrokerMgr, SignalType
 
 loop = asyncio.get_event_loop()
 
-file = BrokerMgr.get_abstract_given_file_name('1732774433867851_grids').to_dict('records')
+file = BrokerMgr.get_abstract_given_file_name('1732845052275290_grids').to_dict('records')
 if file:
     tasks = [
         BrokerMgr.prepare_execute_task(
             _execute_name='needle_{}'.format(direction),
-            _exec_method_name='NeedleReverse',
-            _exec_method_param={
+            _execute_method_name='NeedleReverse',
+            _execute_method_param={
                 '_direction': direction,
                 '_holding_spread': 0.0001,
                 '_trigger_grid': 0.003,
@@ -29,7 +29,7 @@ if file:
         for direction in ['long', 'short']
     ]
 
-    coro = BrokerMgr.submit_exec_tasks(
+    coro = BrokerMgr.submit_execute_tasks(
         _task_name='exec_test',
         _tasks=tasks,
         _signal_ids=[v['result_id'] for v in file],

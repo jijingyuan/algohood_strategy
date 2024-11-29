@@ -4,7 +4,6 @@
 @File: signalGrid.py
 @Author: Jingyuan
 """
-import numpy as np
 import uuid
 from typing import Optional, List, Dict
 
