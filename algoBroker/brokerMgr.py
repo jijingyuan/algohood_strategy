@@ -11,11 +11,13 @@ import json
 import os
 import time
 from enum import Enum
+from typing import List, Dict
 
 import pandas as pd
 
 from algoConfig.zmqConfig import host, port
 from algoPortfolio.algoEngine.dataMgr import DataMgr as PortfolioDataMgr
+from algoPortfolio.algoEngine.portfolioMgr import PortfolioMgr
 from algoSignal.algoEngine.dataMgr import DataMgr
 from algoSignal.algoEngine.signalMgr import SignalMgr
 from algoSignal.algoEngine.targetMgr import TargetMgr
@@ -79,6 +81,7 @@ class BrokerMgr:
     def prepare_portfolio_task(
             cls,
             _portfolio_name,
+            _data_type,
             _optimizer_method_name,
             _optimizer_method_param,
             _risk_method_name,
@@ -92,6 +95,7 @@ class BrokerMgr:
     ):
         return {
             '_portfolio_name': _portfolio_name,
+            '_data_type': _data_type,
             '_optimizer_method_name': _optimizer_method_name,
             '_optimizer_method_param': _optimizer_method_param,
             '_risk_method_name': _risk_method_name,
@@ -102,6 +106,26 @@ class BrokerMgr:
             '_interval': _interval,
             '_omit_open': _omit_open,
             '_omit_close': _omit_close,
+        }
+
+    @classmethod
+    def prepare_order_task(cls, _order_name, _order_task_id, _order_ids):
+        abstract = pd.read_csv('../algoFile/abstract_{}.csv'.format(_order_task_id)).to_dict('records')
+        abstract_order_ids = {v['result_id']: (v['task_name'], v['signal_name']) for v in abstract}
+
+        file_path = []
+        for order_id in _order_ids:
+            if order_id not in abstract_order_ids:
+                logger.error('{} does not exist'.format(order_id))
+                return
+
+            file_path.append('../algoFile/cluster_{}/{}/{}.csv'.format(_order_task_id, *abstract_order_ids[order_id]))
+
+        return {
+            '_order_name': _order_name,
+            '_order_task_id': _order_task_id,
+            '_order_ids': _order_ids,
+            '_file_path': file_path,
         }
 
     @classmethod
@@ -269,7 +293,7 @@ class BrokerMgr:
             logger.error(rsp['msg'])
 
     @classmethod
-    async def submit_portfolio_tasks(cls, _task_name, _tasks, _order_ids, _use_cluster=True):
+    async def submit_portfolio_tasks(cls, _task_name, _portfolio_tasks, _order_tasks, _use_cluster=True):
         if _use_cluster:
             pass
 
@@ -284,23 +308,33 @@ class BrokerMgr:
             data_mgr = PortfolioDataMgr()
             await data_mgr.init_data_mgr()
             abstract_list = []
-            for task in _tasks:
-                data_mgr.clear_cache()
-                signal_name = task.pop('_signal_name')
-                saving_name = '{}/{}'.format(folder_name, signal_name)
-                param = task.copy()
-                data_mgr.set_data_type(task.pop('_data_type'))
-                signal_mgr = SignalMgr(
-                    task.pop('_signal_method_name'),
-                    task.pop('_signal_method_param'),
-                    data_mgr
-                )
-                signals = await signal_mgr.start_task(**task)
+            for order_task in _order_tasks:
+                portfolio_orders = []
+                for index, path in enumerate(order_task['_file_path']):
+                    orders = pd.read_csv(path).to_dict('records')
+                    for order in orders:
+                        order.pop('Unnamed: 0')
+                        portfolio_orders.append({'strategy_id': order_task['_order_ids'][index], **order})
 
-                if signals:
-                    abstract_list.append({'result_id': saving_name, 'result_counts': len(signals), **param})
-                    pd.DataFrame(signals).to_csv('../algoFile/{}.csv'.format(saving_name))
-                    logger.info('{} finished'.format(signal_name))
+                portfolio_orders.sort(key=lambda x: x['local_timestamp'])
+                for portfolio_task in _portfolio_tasks:
+                    portfolio_name = portfolio_task.pop('_portfolio_name')
+                    data_mgr.clear_cache()
+                    data_mgr.set_data_type(portfolio_task.pop('_data_type'))
+                    await data_mgr.load_orders(portfolio_orders)
+                    portfolio_mgr = PortfolioMgr(_data_mgr=data_mgr, **portfolio_task)
+                    await portfolio_mgr.start_task()
+                    # signal_mgr = SignalMgr(
+                    #     task.pop('_signal_method_name'),
+                    #     task.pop('_signal_method_param'),
+                    #     data_mgr
+                    # )
+                    # signals = await signal_mgr.start_task(**task)
+                    #
+                    # if signals:
+                    #     abstract_list.append({'result_id': saving_name, 'result_counts': len(signals), **param})
+                    #     pd.DataFrame(signals).to_csv('../algoFile/{}.csv'.format(saving_name))
+                    #     logger.info('{} finished'.format(signal_name))
 
             if abstract_list:
                 pd.DataFrame(abstract_list).to_csv('../algoFile/abstract_{}.csv'.format(file_name))

@@ -21,7 +21,7 @@ class Grid(SignalBase):
         if self.last_price is None:
             self.last_price = current_price
             return [{
-                'bind_id': str(uuid.uuid4()),
+                'batch_id': str(uuid.uuid4()),
                 'symbol': symbol,
                 'action': 'open',
                 'position': 'long',
@@ -33,7 +33,7 @@ class Grid(SignalBase):
         position = 'long' if current_price > self.last_price else 'short'
         self.last_price = current_price
         return [{
-            'bind_id': str(uuid.uuid4()),
+            'batch_id': str(uuid.uuid4()),
             'symbol': symbol,
             'action': 'open',
             'position': position,

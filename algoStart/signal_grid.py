@@ -28,7 +28,7 @@ tasks = [
 coro = BrokerMgr.submit_signal_tasks(
     _task_name='grids',
     _tasks=tasks,
-    _update_codes=False,
+    _update_codes=True,
     _use_cluster=True
 )
 
