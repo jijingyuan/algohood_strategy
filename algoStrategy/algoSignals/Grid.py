@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 @Create: 2024/10/17 8:51
-@File: signalGrid.py
+@File: Grid.py
 @Author: Jingyuan
 """
 import uuid

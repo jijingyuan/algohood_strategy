@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 @Create on  2024/9/27 15:12
-@file: targetConditionRet.py
+@file: ConditionRet.py
 @author: Jerry
 """
 from algoUtils.DefUtil import TargetBase

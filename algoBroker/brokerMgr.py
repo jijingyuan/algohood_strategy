@@ -15,6 +15,7 @@ from enum import Enum
 import pandas as pd
 
 from algoConfig.zmqConfig import host, port
+from algoPortfolio.algoEngine.dataMgr import DataMgr as PortfolioDataMgr
 from algoSignal.algoEngine.dataMgr import DataMgr
 from algoSignal.algoEngine.signalMgr import SignalMgr
 from algoSignal.algoEngine.targetMgr import TargetMgr
@@ -72,6 +73,35 @@ class BrokerMgr:
             '_execute_method': _execute_method_name,
             '_execute_param': _execute_method_param,
             '_data_type': _data_type,
+        }
+
+    @classmethod
+    def prepare_portfolio_task(
+            cls,
+            _portfolio_name,
+            _optimizer_method_name,
+            _optimizer_method_param,
+            _risk_method_name,
+            _risk_method_param,
+            _liquidity_method_name,
+            _liquidity_method_param,
+            _trigger_type,
+            _interval,
+            _omit_open,
+            _omit_close,
+    ):
+        return {
+            '_portfolio_name': _portfolio_name,
+            '_optimizer_method_name': _optimizer_method_name,
+            '_optimizer_method_param': _optimizer_method_param,
+            '_risk_method_name': _risk_method_name,
+            '_risk_method_param': _risk_method_param,
+            '_liquidity_method_name': _liquidity_method_name,
+            '_liquidity_method_param': _liquidity_method_param,
+            '_trigger_type': _trigger_type,
+            '_interval': _interval,
+            '_omit_open': _omit_open,
+            '_omit_close': _omit_close,
         }
 
     @classmethod
@@ -237,6 +267,45 @@ class BrokerMgr:
             await cls.download_abstract(rsp['msg'])
         else:
             logger.error(rsp['msg'])
+
+    @classmethod
+    async def submit_portfolio_tasks(cls, _task_name, _tasks, _order_ids, _use_cluster=True):
+        if _use_cluster:
+            pass
+
+        else:
+            if not os.path.exists('../algoFile'):
+                os.mkdir('../algoFile')
+
+            file_name = '{}_{}'.format(int(time.time() * 1000000), _task_name)
+            folder_name = 'local_{}'.format(file_name)
+            os.mkdir('../algoFile/{}'.format(folder_name))
+
+            data_mgr = PortfolioDataMgr()
+            await data_mgr.init_data_mgr()
+            abstract_list = []
+            for task in _tasks:
+                data_mgr.clear_cache()
+                signal_name = task.pop('_signal_name')
+                saving_name = '{}/{}'.format(folder_name, signal_name)
+                param = task.copy()
+                data_mgr.set_data_type(task.pop('_data_type'))
+                signal_mgr = SignalMgr(
+                    task.pop('_signal_method_name'),
+                    task.pop('_signal_method_param'),
+                    data_mgr
+                )
+                signals = await signal_mgr.start_task(**task)
+
+                if signals:
+                    abstract_list.append({'result_id': saving_name, 'result_counts': len(signals), **param})
+                    pd.DataFrame(signals).to_csv('../algoFile/{}.csv'.format(saving_name))
+                    logger.info('{} finished'.format(signal_name))
+
+            if abstract_list:
+                pd.DataFrame(abstract_list).to_csv('../algoFile/abstract_{}.csv'.format(file_name))
+
+            logger.info('{} finished'.format(file_name))
 
     @classmethod
     async def download_results(cls, _task_id):
