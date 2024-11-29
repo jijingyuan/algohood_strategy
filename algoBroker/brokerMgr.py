@@ -15,7 +15,7 @@ from enum import Enum
 import pandas as pd
 
 from algoConfig.zmqConfig import host, port
-from algoSignal.algoEngine.dataMgr import DataMgr as signalDataMgr
+from algoSignal.algoEngine.dataMgr import DataMgr
 from algoSignal.algoEngine.signalMgr import SignalMgr
 from algoSignal.algoEngine.targetMgr import TargetMgr
 from algoUtils.asyncZmqUtil import AsyncReqZmq
@@ -66,11 +66,11 @@ class BrokerMgr:
         }
 
     @classmethod
-    def prepare_execute_task(cls, _execute_name, _exec_method_name, _exec_method_param, _data_type):
+    def prepare_execute_task(cls, _execute_name, _execute_method_name, _execute_method_param, _data_type):
         return {
             '_execute_name': _execute_name,
-            '_execute_method': _exec_method_name,
-            '_execute_param': _exec_method_param,
+            '_execute_method': _execute_method_name,
+            '_execute_param': _execute_method_param,
             '_data_type': _data_type,
         }
 
@@ -117,7 +117,7 @@ class BrokerMgr:
             folder_name = 'local_{}'.format(file_name)
             os.mkdir('../algoFile/{}'.format(folder_name))
 
-            data_mgr = signalDataMgr()
+            data_mgr = DataMgr()
             await data_mgr.init_data_mgr()
             abstract_list = []
             for task in _tasks:
@@ -188,7 +188,7 @@ class BrokerMgr:
             folder_name = 'local_{}'.format(file_name)
             os.mkdir('../algoFile/{}'.format(folder_name))
 
-            data_mgr = signalDataMgr()
+            data_mgr = DataMgr()
             await data_mgr.init_data_mgr()
 
             for task in _tasks:
@@ -219,7 +219,7 @@ class BrokerMgr:
             logger.info('{} finished'.format(file_name))
 
     @classmethod
-    async def submit_exec_tasks(cls, _task_name, _tasks, _signal_ids, _signal_type: SignalType):
+    async def submit_execute_tasks(cls, _task_name, _tasks, _signal_ids, _signal_type: SignalType):
         execute_names = [v['_execute_name'] for v in _tasks]
         if len(execute_names) > len(set(execute_names)):
             logger.error('duplicated execute names')
