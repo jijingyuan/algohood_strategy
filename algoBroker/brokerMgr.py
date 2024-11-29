@@ -116,7 +116,7 @@ class BrokerMgr:
             module_names = set([v['_signal_method_name'] for v in _tasks])
 
             for name in module_names:
-                module_name = 'algoStrategy.signal{}'.format(name)
+                module_name = 'algoStrategy.algoSignals.{}'.format(name)
                 module = importlib.import_module(module_name)
                 script_content = inspect.getsource(module) if _update_codes else ''
 
@@ -185,7 +185,7 @@ class BrokerMgr:
             module_names = set([v['_target_method_name'] for v in _tasks])
 
             for name in module_names:
-                module_name = 'algoStrategy.target{}'.format(name)
+                module_name = 'algoStrategy.algoTargets.{}'.format(name)
                 module = importlib.import_module(module_name)
                 script_content = inspect.getsource(module) if _update_codes else ''
 
