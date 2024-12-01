@@ -11,10 +11,10 @@ import json
 import os
 import time
 from enum import Enum
-from typing import List, Dict
 
 import pandas as pd
 
+from algoConfig.execConfig import delay_dict, fee_dict
 from algoConfig.zmqConfig import host, port
 from algoPortfolio.algoEngine.dataMgr import DataMgr as PortfolioDataMgr
 from algoPortfolio.algoEngine.portfolioMgr import PortfolioMgr
@@ -281,7 +281,11 @@ class BrokerMgr:
 
         zmq_client = AsyncReqZmq(port, host)
         task_dict = {'task_type': 'exec', 'task': {
-            'task_name': _task_name, 'signal_ids': _signal_ids, 'signal_type': _signal_type.name, 'info': _tasks
+            'task_name': _task_name,
+            'signal_ids': _signal_ids,
+            'signal_type': _signal_type.name,
+            'exec_config': {'delay_dict': delay_dict, 'fee_dict': fee_dict},
+            'info': _tasks
         }}
 
         tmp = await zmq_client.send_msg(json.dumps(task_dict).encode())
