@@ -10,9 +10,9 @@ from algoBroker.brokerMgr import BrokerMgr
 from algoUtils.dateUtil import local_datetime_timestamp
 
 loop = asyncio.get_event_loop()
-coro = BrokerMgr.get_active_symbols(60 * 60 * 24 * 30, 'trade')
-symbols = loop.run_until_complete(coro)
-# symbols = ['one_usdt|binance_future']
+# coro = BrokerMgr.get_active_symbols(60 * 60 * 24 * 30, 'trade')
+# symbols = loop.run_until_complete(coro)
+symbols = ['one_usdt|binance_future']
 tasks = [
     BrokerMgr.prepare_signal_task(
         _signal_name='grid_{}'.format(symbol).replace('|', '_'),
@@ -30,7 +30,7 @@ coro = BrokerMgr.submit_signal_tasks(
     _task_name='grids',
     _tasks=tasks,
     _update_codes=True,
-    _use_cluster=True
+    # _use_cluster=True
 )
 
 loop.run_until_complete(coro)

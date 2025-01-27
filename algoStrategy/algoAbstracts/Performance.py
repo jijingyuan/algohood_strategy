@@ -7,7 +7,7 @@
 import numpy as np
 from typing import Optional, Dict
 
-from algoUtils.DefUtil import AbstractBase
+from algoUtils.defUtil import AbstractBase
 
 
 class Algo(AbstractBase):

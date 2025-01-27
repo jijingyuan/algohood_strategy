@@ -7,7 +7,7 @@
 import uuid
 from typing import Optional, List, Dict
 
-from algoUtils.DefUtil import SignalBase
+from algoUtils.defUtil import SignalBase
 
 
 class Algo(SignalBase):
@@ -41,6 +41,3 @@ class Algo(SignalBase):
             })
 
         return signals
-
-    def generate_filter(self):
-        pass
