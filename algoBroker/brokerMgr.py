@@ -20,16 +20,16 @@ import requests
 
 from algoConfig.execConfig import delay_dict, fee_dict
 from algoConfig.zmqConfig import host, port
-from algoExecution.algoEngine.dataMgr import DataMgr as ExecuteDataMgr
-from algoExecution.algoEngine.eventMgr import EventMgr
-from algoPortfolio.algoEngine.dataMgr import DataMgr as PortfolioDataMgr
-from algoPortfolio.algoEngine.eventMgr import EventMgr as PortfolioEventMgr
+from algoExecution.algoEngine.dataMgr import DataMgr as ExecuteDataMgr  # ignore this
+from algoExecution.algoEngine.eventMgr import EventMgr  # ignore this
+from algoPortfolio.algoEngine.dataMgr import DataMgr as PortfolioDataMgr  # ignore this
+from algoPortfolio.algoEngine.eventMgr import EventMgr as PortfolioEventMgr  # ignore this
 from algoSignal.algoEngine.dataMgr import DataMgr as SignalDataMgr
 from algoSignal.algoEngine.performanceMgr import PerformanceMgr
 from algoSignal.algoEngine.signalMgr import SignalMgr
 from algoUtils.asyncRedisUtil import AsyncRedisClient
 from algoUtils.asyncZmqUtil import AsyncReqZmq
-from algoUtils.dateUtil import date_list_given_start_end
+from algoUtils.dateUtil import date_list_given_start_end, local_date_timestamp
 from algoUtils.loggerUtil import generate_logger
 
 logger = generate_logger(level='DEBUG')
@@ -655,28 +655,45 @@ class BrokerMgr:
         return wsl_ip
 
     @classmethod
-    def sync_redis(cls, _redis_host, _redis_port):
+    def sync_redis(cls, _redis_host, _config_port, _node_port):
+        exist_keys = []
         loop = asyncio.get_event_loop()
-        client = AsyncRedisClient(_redis_host, _redis_port)
+        client = AsyncRedisClient(_redis_host, _config_port)
+        node = AsyncRedisClient(_redis_host, _node_port)
+        loop.run_until_complete(client.add_hash(0, 'data_shard', {'{}:{}'.format(_redis_host, _node_port): 1}))
         receive_ts_bias = 100000
 
         folder_path = '../algoData'
-        file_list = os.listdir(folder_path)
+        file_list = sorted(os.listdir(folder_path))
         for file_name in file_list:
             zip_file_path = '{}/{}'.format(folder_path, file_name)
             with zipfile.ZipFile(zip_file_path, 'r') as zip_ref:
                 symbol, _ = file_name.split('-', 1)
+                coro = client.get_hash(0, 'last_ts', '{}|binance_future'.format(symbol))
+                last_cache_ts = loop.run_until_complete(coro) or b'0'
+                last_cache_ts = int(last_cache_ts.decode())
+                _, _, tmp = file_name.split('-', 2)
+                date_str, _ = tmp.split('.')
+                zip_timestamp = local_date_timestamp(date_str)
+                if zip_timestamp <= last_cache_ts:
+                    logger.info('{} already cached'.format(file_name))
+                    continue
+
                 tmp = symbol.replace('_', '').upper()
                 data_name = file_name.replace('zip', 'csv').replace(symbol, tmp)
                 insert_list = []
                 last_rk_ts = 0
                 index = 1
+
                 with zip_ref.open(data_name) as file:
+                    logger.info('{} load from disk'.format(file_name))
                     agg_trades = pd.read_csv(file).to_dict('records')
+                    logger.info('{} format data'.format(file_name))
                     for trade in agg_trades:
                         timestamp = trade['transact_time'] * 1000
                         direction = 0 if trade['is_buyer_maker'] else 1
                         if timestamp == last_rk_ts:
+
                             rank_timestamp = last_rk_ts + receive_ts_bias + index
                             index += 1
                         else:
@@ -684,14 +701,34 @@ class BrokerMgr:
                             index = 1
 
                         last_rk_ts = timestamp
+                        # 生成四个时间序列的key
+                        ts_keys = [
+                            '{}|binance_future|trade|close'.format(symbol),
+                            '{}|binance_future|trade|amount'.format(symbol),
+                            '{}|binance_future|trade|timestamp'.format(symbol),
+                            '{}|binance_future|trade|direction'.format(symbol)
+                        ]
+                        # 检查并创建TS
+                        for key in ts_keys:
+                            if key not in exist_keys:
+                                pair, exchange, data_type, field = key.split('|')
+                                labels = {'pair': pair, 'exchange': exchange, 'data_type': data_type, 'field': field}
+                                loop.run_until_complete(node.create_ts_key(0, key, labels))
+                                exist_keys.append(key)
+                        # 添加数据到插入列表
+
                         insert_list.extend([
-                            ('{}|binance_future|trade|close'.format(symbol), rank_timestamp, trade['price']),
-                            ('{}|binance_future|trade|amount'.format(symbol), rank_timestamp, trade['quantity']),
-                            ('{}|binance_future|trade|timestamp'.format(symbol), rank_timestamp, timestamp),
-                            ('{}|binance_future|trade|direction'.format(symbol), rank_timestamp, direction),
+                            (ts_keys[0], rank_timestamp, trade['price']),
+                            (ts_keys[1], rank_timestamp, trade['quantity']),
+                            (ts_keys[2], rank_timestamp, timestamp),
+                            (ts_keys[3], rank_timestamp, direction),
                         ])
 
-                    coro = client.create_ts_key(0, key, labels)
+                    if insert_list:
+                        logger.info('{} sync to redis'.format(file_name))
+                        coro = node.add_ts_batch(0, insert_list)
+                        loop.run_until_complete(coro)
+                        coro = client.add_hash(0, 'last_ts', {'{}|binance_future'.format(symbol): zip_timestamp})
+                        loop.run_until_complete(coro)
 
-                    coro = client.add_ts_batch(0, insert_list)
-                    loop.run_until_complete(coro)
+                    logger.info('{} sync finished'.format(file_name))
